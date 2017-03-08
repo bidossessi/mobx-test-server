@@ -2,12 +2,17 @@
 // Implementation using HTTP Bearer strategy and jsonwebtoken
 //
 var express        = require('express'),
+    cors           = require('cors'),
     jwt            = require('jsonwebtoken'),
+    _              = require('lodash'),
     passport       = require('passport'),
     bodyParser     = require('body-parser'),
     LocalStrategy  = require('passport-local').Strategy,
     BearerStrategy = require('passport-http-bearer').Strategy;
 
+var PORT = process.env.PORT || 3001;
+var todos = [];
+var todoNextId = 1;
 var secret = 'super secret',
     users = [
       {id: 0, username: 'test', password: 'test'}
@@ -33,8 +38,10 @@ passport.use(new BearerStrategy(function (token, cb) {
 }));
 
 var app = express();
+app.use(cors());
 app.use(bodyParser.json());
 app.use(passport.initialize());
+
 
 // First login to receive a token
 app.post('/login', function(req, res, next) {
@@ -43,7 +50,7 @@ app.post('/login', function(req, res, next) {
     if (!user) {
       return res.status(401).json({ status: 'error', code: 'unauthorized' });
     } else {
-      return res.json({ token: jwt.sign({id: user.id}, secret) });
+      return res.json({ token: jwt.sign({id: user.id, username: user.username}, secret) });
     }
   })(req, res, next);
 });
@@ -62,17 +69,71 @@ app.all('*', function(req, res, next) {
   })(req, res, next);
 });
 
-app.get('/message', function(req, res) {
-  return res.json({
-    status: 'ok',
-    message: 'Congratulations ' + req.user.username + '. You have a token.'
-  });
+app.get('/', function (req, res) {
+  res.send('Todo API Root');
 });
+
+app.get('/todos', function (req, res) {
+  res.json(todos);
+});
+
+app.get('/todos/:id', function (req, res) {
+  var todoId = parseInt(req.params.id);
+  var matchedTodo = _.find(todos, function(o) { return o.id === todoId; });
+
+  if (matchedTodo) {
+    res.json(matchedTodo);
+  }
+
+  res.status(404).send();
+});
+
+app.post('/todos', function (req, res) {
+  var body = _.pick(req.body, 'task', 'completed');
+
+  if (!_.isBoolean(body.completed) || !_.isString(body.task) || body.task.trim().length === 0) {
+    return res.status(422).send();
+  }
+
+  body.task = body.task.trim();
+
+  body.id = todoNextId++;
+  todos.push(body);
+
+  res.json(body);
+});
+
+app.put('/todos/:id', function (req, res) {
+  var todoId = parseInt(req.params.id);
+  var matchedTodo = _.find(todos, function(o) { return o.id === todoId; });
+
+  if (matchedTodo) {
+      Object.assign(matchedTodo, req.body)
+      res.json(matchedTodo).send();
+    }
+
+  res.status(404).send();
+});
+
+app.delete('/todos/:id', function (req, res) {
+  var todoId = parseInt(req.params.id);
+  var matchedTodo = _.find(todos, function(o) { return o.id === todoId; });
+
+  if (matchedTodo) {
+    todos.splice(todos.indexOf(matchedTodo), 1)
+    res.status(202).send();
+  }
+
+  res.status(404).send();
+});
+
 
 // Error handler middleware
 app.use(function(err, req, res, next) {
   console.error(err);
-  return res.status(500).json({ status: 'error', code: 'unauthorized' });
+  return res.status(500).json({ status: 'error', code: 'server error' });
 });
 
-app.listen(3000);
+app.listen(PORT, function () {
+  console.log('Express listening on port ' + PORT);
+});
